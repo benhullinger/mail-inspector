@@ -1,0 +1,956 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mail Inspector — EML / MSG Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Darker+Grotesque:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --primary:    #DD614C;
+  --surface:    #FFFFFF;
+  --text:       #111827;
+  --muted:      #6B7280;
+  --border:     #111827;
+  --bg:         #F5F4F2;
+  --sidebar-w:  308px;
+  --font-sans:  'Darker Grotesque', system-ui, sans-serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, monospace;
+}
+
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-sans); }
+
+/* ── Top bar ─────────────────────────────────────── */
+.topbar {
+  height: 46px;
+  background: var(--text);
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.topbar-logo {
+  font-size: 15px; font-weight: 900;
+  letter-spacing: 0.07em; text-transform: uppercase; color: #fff;
+}
+.topbar-logo span { color: var(--primary); }
+.topbar-sub {
+  font-size: 10px; font-weight: 500; font-family: var(--font-mono);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: rgba(255,255,255,0.4);
+}
+.topbar-hint {
+  margin-left: auto;
+  font-size: 10px; font-family: var(--font-mono); font-weight: 400;
+  color: rgba(255,255,255,0.3);
+  letter-spacing: 0.04em;
+}
+
+/* ── App shell ───────────────────────────────────── */
+.app { display: flex; height: calc(100vh - 46px); }
+
+/* ── Sidebar ─────────────────────────────────────── */
+.sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  border-right: 2px solid var(--border);
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  overflow: hidden;
+}
+.sidebar-head {
+  padding: 13px 15px 11px;
+  border-bottom: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0;
+}
+.sidebar-title {
+  font-size: 10px; font-weight: 800; font-family: var(--font-mono);
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.inbox-count {
+  font-size: 10px; font-weight: 700; font-family: var(--font-mono);
+  background: var(--primary); color: #fff;
+  padding: 2px 7px; border-radius: 1px;
+}
+
+/* ── Drop zone ───────────────────────────────────── */
+.drop-zone {
+  margin: 11px;
+  border: 2px dashed var(--border);
+  padding: 14px 10px;
+  text-align: center; cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+}
+.drop-zone:hover, .drop-zone.over { background: #FFF2EF; border-color: var(--primary); }
+.drop-zone input { display: none; }
+.drop-label { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; }
+.drop-sub { font-size: 10px; font-family: var(--font-mono); color: var(--muted); margin-top: 3px; }
+
+/* ── Email list ──────────────────────────────────── */
+.email-list { overflow-y: auto; flex: 1; }
+.email-list::-webkit-scrollbar { width: 3px; }
+.email-list::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 2px; }
+
+.email-item {
+  padding: 11px 14px;
+  border-bottom: 1.5px solid #E5E7EB;
+  cursor: pointer; position: relative;
+  transition: background 0.1s;
+}
+.email-item:hover { background: #F9FAFB; }
+.email-item.active {
+  background: #FFF2EF;
+  border-left: 3px solid var(--primary);
+  padding-left: 11px;
+}
+.ei-from {
+  font-size: 13px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding-right: 30px;
+}
+.ei-subject {
+  font-size: 12px; font-weight: 500; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-top: 2px; padding-right: 30px;
+}
+.ei-meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.ei-date { font-size: 10px; font-family: var(--font-mono); color: var(--muted); }
+.ei-badge {
+  font-size: 9px; font-weight: 800; font-family: var(--font-mono);
+  letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 2px 5px; background: var(--text); color: #fff; border-radius: 1px;
+}
+.ei-badge.msg { background: #1D4ED8; }
+.ei-del {
+  position: absolute; top: 9px; right: 9px;
+  width: 22px; height: 22px; border: none; background: none;
+  cursor: pointer; color: var(--muted); font-size: 17px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 1px; opacity: 0; transition: opacity 0.1s, color 0.1s;
+}
+.email-item:hover .ei-del { opacity: 1; }
+.ei-del:hover { color: var(--primary); background: #FFEAE6; }
+
+.empty-state {
+  padding: 36px 20px; text-align: center; color: var(--muted);
+}
+.empty-state svg { opacity: 0.25; margin-bottom: 14px; }
+.empty-state-text {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+}
+.empty-state-sub {
+  font-size: 11px; font-family: var(--font-mono); color: var(--muted);
+  margin-top: 6px; line-height: 1.5;
+}
+
+/* ── Preview panel ───────────────────────────────── */
+.preview { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+
+.prev-headers { background: var(--surface); border-bottom: 2px solid var(--border); flex-shrink: 0; }
+.hrow {
+  display: grid; grid-template-columns: 72px 1fr;
+  border-bottom: 1px solid #E9EAEC; min-height: 30px;
+}
+.hrow:last-child { border-bottom: none; }
+.hlabel {
+  padding: 7px 10px 7px 12px; font-size: 9px; font-weight: 800;
+  font-family: var(--font-mono); letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--muted); background: #F6F7F8;
+  border-right: 1.5px solid #E9EAEC;
+  display: flex; align-items: center;
+}
+.hval {
+  padding: 7px 14px; font-size: 13px; font-weight: 500;
+  color: var(--text); word-break: break-word;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+}
+.hval.subj { font-weight: 800; font-size: 14px; }
+.att-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; font-family: var(--font-mono);
+  padding: 2px 7px; background: #F3F4F6;
+  border: 1px solid #D1D5DB; border-radius: 1px;
+}
+
+.prev-frame { flex: 1; overflow: hidden; position: relative; }
+.prev-iframe { width: 100%; height: 100%; border: none; display: block; background: #fff; }
+
+.prev-empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  color: var(--muted); gap: 10px;
+}
+.prev-empty svg { opacity: 0.15; }
+.prev-empty-text {
+  font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.09em;
+}
+.prev-empty-sub {
+  font-size: 11px; font-family: var(--font-mono); color: var(--muted); text-align: center; line-height: 1.6;
+}
+
+/* ── Loading bar ─────────────────────────────────── */
+.loading-bar {
+  position: fixed; top: 46px; left: 0; right: 0; height: 3px; z-index: 100;
+  background: var(--primary);
+  transform-origin: left; animation: lb 0.9s ease-in-out infinite alternate;
+}
+@keyframes lb { from { transform: scaleX(0.05); opacity: 1; } to { transform: scaleX(0.95); opacity: 0.7; } }
+
+/* ── Toast ───────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 18px; right: 18px;
+  background: var(--text); color: #fff;
+  padding: 10px 16px; font-size: 13px; font-weight: 600;
+  border-radius: 1px; z-index: 200;
+  opacity: 0; transform: translateY(8px);
+  transition: opacity 0.18s, transform 0.18s; pointer-events: none;
+  max-width: 340px; font-family: var(--font-sans);
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.err { background: var(--primary); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="topbar-logo">Mail<span>.</span>Inspector</span>
+  <span class="topbar-sub">EML / MSG Viewer</span>
+  <span class="topbar-hint">storage: IndexedDB · works offline</span>
+</div>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <span class="sidebar-title">Inbox</span>
+      <span class="inbox-count" id="inbox-count">0</span>
+    </div>
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" multiple accept=".eml,.msg">
+      <div class="drop-label">+ Add Email</div>
+      <div class="drop-sub">EML · MSG · drag &amp; drop</div>
+    </div>
+    <div class="email-list" id="email-list">
+      <div class="empty-state" id="empty-state">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><rect x="4" y="10" width="40" height="28" rx="1" stroke="#111827" stroke-width="2.5"/><path d="M4 14l20 13 20-13" stroke="#111827" stroke-width="2.5"/></svg>
+        <div class="empty-state-text">No emails yet</div>
+        <div class="empty-state-sub">Add an .eml or .msg file<br>to get started</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="preview" id="preview-panel">
+    <div class="prev-empty" id="prev-empty">
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none"><rect x="6" y="14" width="52" height="36" rx="1" stroke="#111827" stroke-width="2.5"/><path d="M6 20l26 17 26-17" stroke="#111827" stroke-width="2.5"/></svg>
+      <div class="prev-empty-text">Select an email to preview</div>
+      <div class="prev-empty-sub">Rendered in a sandboxed iframe<br>Inspect with browser DevTools</div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════
+// CFB (Compound Binary File) Parser — foundation for .msg files
+// Implements Microsoft's Compound Document File Format (OLE2)
+// ═══════════════════════════════════════════════════════════════════
+class CFBParser {
+  constructor(buffer) {
+    this.buf = buffer;
+    this.dv  = new DataView(buffer);
+    this.u8  = new Uint8Array(buffer);
+    this._hdr();
+    this._fat();
+    this._dir();
+    const root = this.dir[0];
+    this.miniCont = (root && root.sec >= 0)
+      ? this._secChain(root.sec, root.size)
+      : new Uint8Array(0);
+    this._miniFat();
+  }
+
+  _hdr() {
+    const MAGIC = [0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1];
+    if (!MAGIC.every((b, i) => this.u8[i] === b)) throw new Error('Not a CFB/MSG file');
+    const v = this.dv;
+    const ssp = v.getUint16(30, true);
+    this.SS  = ssp  > 0 ? (1 << ssp)  : 512;   // sector size
+    const msp = v.getUint16(32, true);
+    this.MSS = msp  > 0 ? (1 << msp)  : 64;    // mini-sector size
+    this.MCO = v.getUint32(56, true) || 4096;   // mini-stream cutoff
+    this.dirSec     = v.getUint32(48, true);
+    this.miniFatSec = v.getUint32(60, true);
+    this.miniFatCnt = v.getUint32(64, true);
+    // Build DIFAT: 109 slots in header + overflow sectors
+    this._difat = [];
+    for (let i = 0; i < 109; i++) {
+      const s = v.getUint32(76 + i * 4, true);
+      if (s >= 0xFFFFFFFD) break;
+      this._difat.push(s);
+    }
+    let ext = v.getUint32(68, true);
+    while (ext < 0xFFFFFFFD) {
+      const off = this._so(ext);
+      for (let i = 0; i < this.SS / 4 - 1; i++) {
+        const s = v.getUint32(off + i * 4, true);
+        if (s >= 0xFFFFFFFD) break;
+        this._difat.push(s);
+      }
+      ext = v.getUint32(off + this.SS - 4, true);
+    }
+  }
+
+  _so(sec) { return (sec + 1) * this.SS; } // sector offset
+
+  _fat() {
+    const eps = this.SS / 4;
+    const arr = [];
+    for (const sec of this._difat) {
+      const off = this._so(sec);
+      for (let i = 0; i < eps; i++) arr.push(this.dv.getInt32(off + i * 4, true));
+    }
+    this.fat = new Int32Array(arr);
+  }
+
+  _chain(first) {
+    const c = [], seen = new Set();
+    let s = first;
+    while (s >= 0 && !seen.has(s)) {
+      seen.add(s); c.push(s);
+      if (s >= this.fat.length) break;
+      s = this.fat[s];
+    }
+    return c;
+  }
+
+  _secChain(first, size) {
+    const chain = this._chain(first);
+    const raw = Math.min(chain.length * this.SS, this.buf.byteLength);
+    const out = new Uint8Array(Math.min(size || raw, raw));
+    let pos = 0;
+    for (const sec of chain) {
+      const off = this._so(sec);
+      const len = Math.min(this.SS, out.length - pos);
+      if (len <= 0) break;
+      out.set(this.u8.subarray(off, Math.min(off + len, this.u8.length)), pos);
+      pos += len;
+    }
+    return out;
+  }
+
+  _miniFat() {
+    if (this.miniFatSec >= 0xFFFFFFFD || this.miniFatCnt === 0) {
+      this.mfat = new Int32Array(0); return;
+    }
+    const arr = [];
+    for (const sec of this._chain(this.miniFatSec)) {
+      const off = this._so(sec);
+      for (let i = 0; i < this.SS / 4; i++) arr.push(this.dv.getInt32(off + i * 4, true));
+    }
+    this.mfat = new Int32Array(arr);
+  }
+
+  _miniChain(first) {
+    const c = [], seen = new Set();
+    let s = first;
+    while (s >= 0 && !seen.has(s)) {
+      seen.add(s); c.push(s);
+      if (s >= this.mfat.length) break;
+      s = this.mfat[s];
+    }
+    return c;
+  }
+
+  _miniSecChain(first, size) {
+    const chain = this._miniChain(first);
+    const out = new Uint8Array(Math.min(size || chain.length * this.MSS, chain.length * this.MSS));
+    let pos = 0;
+    for (const sec of chain) {
+      const off = sec * this.MSS;
+      const len = Math.min(this.MSS, out.length - pos);
+      if (len <= 0) break;
+      out.set(this.miniCont.subarray(off, Math.min(off + len, this.miniCont.length)), pos);
+      pos += len;
+    }
+    return out;
+  }
+
+  _dir() {
+    this.dir = [];
+    for (const sec of this._chain(this.dirSec)) {
+      const off = this._so(sec);
+      for (let i = 0; i < this.SS / 128; i++) {
+        const b = off + i * 128;
+        const nl   = this.dv.getUint16(b + 64, true);
+        const type = this.u8[b + 66];
+        if (type === 0 || nl === 0) { this.dir.push(null); continue; }
+        const nameBytes = this.u8.subarray(b, b + Math.max(0, nl - 2));
+        const name = new TextDecoder('utf-16le').decode(nameBytes);
+        this.dir.push({
+          name, type,
+          L: this.dv.getInt32(b + 68, true),
+          R: this.dv.getInt32(b + 72, true),
+          child: this.dv.getInt32(b + 76, true),
+          sec: this.dv.getInt32(b + 116, true),
+          size: this.dv.getUint32(b + 120, true),
+          id: this.dir.length
+        });
+      }
+    }
+  }
+
+  _find(nameLC, nodeId) {
+    if (nodeId < 0 || nodeId >= this.dir.length) return null;
+    const n = this.dir[nodeId];
+    if (!n) return null;
+    if (n.name.toLowerCase() === nameLC) return n;
+    return this._find(nameLC, n.L) || this._find(nameLC, n.R);
+  }
+
+  entry(name, parentId = 0) {
+    const p = this.dir[parentId];
+    if (!p || p.child < 0) return null;
+    return this._find(name.toLowerCase(), p.child);
+  }
+
+  stream(e) {
+    if (!e || e.sec < 0) return new Uint8Array(0);
+    if (e.type === 5 || e.size >= this.MCO) return this._secChain(e.sec, e.size);
+    return this._miniSecChain(e.sec, e.size);
+  }
+
+  namedStream(name, parentId = 0) { return this.stream(this.entry(name, parentId)); }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MSG Parser — extracts email fields from an Outlook .msg binary
+// ═══════════════════════════════════════════════════════════════════
+class MSGParser {
+  constructor(buf) {
+    this.cfb  = new CFBParser(buf);
+    this.d16  = new TextDecoder('utf-16le');
+    this.d8   = new TextDecoder('windows-1252');
+  }
+
+  // Stream name for a MAPI property  e.g. __substg1.0_0037001F
+  _sn(propId, typeId) {
+    return `__substg1.0_${propId.toString(16).toUpperCase().padStart(4,'0')}${typeId.toString(16).toUpperCase().padStart(4,'0')}`;
+  }
+
+  _str(propId, parentId = 0) {
+    let d = this.cfb.namedStream(this._sn(propId, 0x001F), parentId); // PT_UNICODE
+    if (d.length) return this.d16.decode(d).replace(/\0+$/, '');
+    d = this.cfb.namedStream(this._sn(propId, 0x001E), parentId);     // PT_STRING8
+    if (d.length) return this.d8.decode(d).replace(/\0+$/, '');
+    d = this.cfb.namedStream(this._sn(propId, 0x0102), parentId);     // PT_BINARY (HTML body)
+    if (d.length) {
+      try { return new TextDecoder('utf-8').decode(d).replace(/\0+$/, ''); } catch {}
+      return this.d8.decode(d).replace(/\0+$/, '');
+    }
+    return '';
+  }
+
+  // Extract FILETIME from __properties_version1.0 for a given property ID
+  _date(parentId = 0) {
+    const data = this.cfb.namedStream('__properties_version1.0', parentId);
+    if (!data.length) return '';
+    const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const hdr = parentId === 0 ? 32 : 8; // root properties stream has 32-byte header
+    for (let off = hdr; off + 16 <= data.byteLength; off += 16) {
+      const pt = dv.getUint16(off, true);       // property type
+      const pi = dv.getUint16(off + 2, true);   // property ID
+      // PR_MESSAGE_DELIVERY_TIME=0x0E06 or PR_CLIENT_SUBMIT_TIME=0x0039, type PT_SYSTIME=0x0040
+      if ((pi === 0x0E06 || pi === 0x0039) && pt === 0x0040) {
+        const lo = dv.getUint32(off + 8, true);
+        const hi = dv.getUint32(off + 12, true);
+        // Windows FILETIME: 100-nanosecond intervals since 1601-01-01
+        const ms = (hi * 4294967296 + lo) / 10000 - 11644473600000;
+        if (ms > 0) return new Date(ms).toUTCString();
+      }
+    }
+    return '';
+  }
+
+  parse() {
+    const subject     = this._str(0x0037);   // PR_SUBJECT
+    const senderName  = this._str(0x0C1F);   // PR_SENDER_NAME
+    const senderEmail = this._str(0x0C1E);   // PR_SENDER_EMAIL_ADDRESS
+    const to          = this._str(0x0E04);   // PR_DISPLAY_TO
+    const cc          = this._str(0x0E03);   // PR_DISPLAY_CC
+    const date        = this._date();
+    let   bodyHtml    = this._str(0x1013);   // PR_BODY_HTML
+    const bodyText    = this._str(0x1000);   // PR_BODY (plain text)
+
+    if (!bodyHtml && bodyText) {
+      const esc = bodyText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      bodyHtml = `<div style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.7;padding:28px;color:#111;white-space:pre-wrap">${esc}</div>`;
+    }
+
+    const from = senderEmail
+      ? (senderName ? `${senderName} <${senderEmail}>` : senderEmail)
+      : (senderName || 'Unknown');
+
+    // Attachments: look for __attach_#NNN storages in root
+    const attachments = [];
+    for (const e of this.cfb.dir) {
+      if (e && e.type === 1 && /^__attach_#\d+$/i.test(e.name)) {
+        const name = this._str(0x3704, e.id) || this._str(0x3001, e.id) || 'attachment';
+        attachments.push({ name });
+      }
+    }
+
+    return {
+      subject: subject || '(no subject)',
+      from,
+      to:   to   || '',
+      cc:   cc   || '',
+      date: date || '',
+      bodyHtml: bodyHtml || `<div style="padding:40px;color:#9CA3AF;font-family:system-ui;text-align:center;font-size:14px">No readable body found in this MSG file</div>`,
+      attachments,
+      type: 'msg'
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EML Parser — RFC 5322 + MIME (multipart, QP, base64, RFC 2047)
+// ═══════════════════════════════════════════════════════════════════
+class EMLParser {
+  parse(text) {
+    const norm = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const sep  = norm.indexOf('\n\n');
+    const hdrs = this._hdrs(sep >= 0 ? norm.slice(0, sep) : norm);
+    const body = sep >= 0 ? norm.slice(sep + 2) : '';
+    const ct   = hdrs['content-type'] || 'text/plain';
+    const enc  = hdrs['content-transfer-encoding'] || '';
+    const p    = this._part(body, ct, enc);
+    return {
+      subject: this._rfc2047(hdrs['subject']  || '(no subject)'),
+      from:    this._rfc2047(hdrs['from']      || ''),
+      to:      this._rfc2047(hdrs['to']        || ''),
+      cc:      this._rfc2047(hdrs['cc']        || ''),
+      date:    hdrs['date'] || '',
+      bodyHtml: p.html || (p.text
+        ? `<div style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.7;padding:28px;color:#111;white-space:pre-wrap">${this._esc(p.text)}</div>`
+        : `<div style="padding:40px;color:#9CA3AF;font-family:system-ui;text-align:center;font-size:14px">No body content</div>`),
+      attachments: p.attachments || [],
+      type: 'eml'
+    };
+  }
+
+  // Parse unfolded headers into a lowercase-key map
+  _hdrs(text) {
+    const map = {};
+    const unfolded = text.replace(/\n[ \t]+/g, ' ');
+    for (const line of unfolded.split('\n')) {
+      const m = line.match(/^([\x21-\x39\x3B-\x7E]+):\s*(.*)/);
+      if (m) map[m[1].toLowerCase()] = m[2];
+    }
+    return map;
+  }
+
+  // Decode RFC 2047 encoded-words: =?charset?B/Q?...?=
+  _rfc2047(str) {
+    return str.replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_, cs, enc, data) => {
+      try {
+        if (enc.toUpperCase() === 'B') {
+          return new TextDecoder(cs).decode(Uint8Array.from(atob(data), c => c.charCodeAt(0)));
+        }
+        const raw = data.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+        return new TextDecoder(cs).decode(new TextEncoder().encode(raw));
+      } catch { return data; }
+    });
+  }
+
+  _part(body, ct, enc) {
+    const ctl = ct.toLowerCase();
+    if (ctl.includes('multipart/')) {
+      const bm = ct.match(/boundary=(?:"([^"]+)"|([^\s;]+))/i);
+      if (!bm) return { html: '', text: '', attachments: [] };
+      return this._multipart(body, bm[1] || bm[2], ctl);
+    }
+    const decoded = this._decode(body, enc, ctl);
+    if (ctl.startsWith('text/html'))  return { html: decoded, text: '', attachments: [] };
+    if (ctl.startsWith('text/plain')) return { html: '', text: decoded, attachments: [] };
+    return { html: '', text: decoded, attachments: [] };
+  }
+
+  _charset(ct) {
+    const m = (ct || '').match(/charset=(?:"?([^";\s]+)"?)/i);
+    return m ? m[1] : 'utf-8';
+  }
+
+  _decode(body, enc, ct) {
+    const e = (enc || '').toLowerCase().trim();
+    const charset = this._charset(ct);
+    if (e === 'quoted-printable') return this._qp(body, charset);
+    if (e === 'base64') {
+      try {
+        const bytes = Uint8Array.from(atob(body.replace(/\s/g, '')), c => c.charCodeAt(0));
+        try { return new TextDecoder(charset).decode(bytes); } catch {}
+        return new TextDecoder('utf-8').decode(bytes);
+      } catch { return body; }
+    }
+    // 7bit / 8bit: body was already decoded as a JS string from raw bytes.
+    // If charset isn't ASCII-compat (e.g. the file was misread as windows-1252
+    // but the part declares utf-8), re-encode to Latin-1 bytes then re-decode.
+    if (charset && !/^(us-ascii|ascii|iso-8859-1|latin-1|windows-1252)$/i.test(charset)) {
+      try {
+        const bytes = Uint8Array.from(body, c => c.charCodeAt(0) & 0xFF);
+        return new TextDecoder(charset).decode(bytes);
+      } catch {}
+    }
+    return body;
+  }
+
+  _qp(s, charset = 'utf-8') {
+    // Expand soft line breaks first, then collect raw bytes.
+    const expanded = s.replace(/=\r?\n/g, '');
+    const bytes = [];
+    let i = 0;
+    while (i < expanded.length) {
+      if (expanded[i] === '=' && i + 2 < expanded.length && /^[0-9A-Fa-f]{2}$/.test(expanded.slice(i + 1, i + 3))) {
+        bytes.push(parseInt(expanded.slice(i + 1, i + 3), 16));
+        i += 3;
+      } else {
+        bytes.push(expanded.charCodeAt(i) & 0xFF);
+        i++;
+      }
+    }
+    try { return new TextDecoder(charset).decode(new Uint8Array(bytes)); }
+    catch { return new TextDecoder('utf-8').decode(new Uint8Array(bytes)); }
+  }
+
+  _multipart(body, boundary, parentCT) {
+    const esc = boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Split on boundary lines; ignore preamble (first) and epilogue (last after --)
+    const parts = body.split(new RegExp(`\n?--${esc}(?:--)?\r?\n?`));
+    let html = '', text = '';
+    const attachments = [];
+    const cids = {};
+
+    for (const part of parts) {
+      if (!part.trim() || part.trim() === '--') continue;
+      const sep = part.indexOf('\n\n');
+      if (sep < 0) continue;
+      const htext  = part.slice(0, sep);
+      const pbody  = part.slice(sep + 2);
+      const hdrs   = this._hdrs(htext);
+      const ct     = hdrs['content-type'] || 'text/plain';
+      const enc    = hdrs['content-transfer-encoding'] || '';
+      const cd     = hdrs['content-disposition'] || '';
+      const cid    = (hdrs['content-id'] || '').trim().replace(/^<|>$/g, '');
+      const ctl    = ct.toLowerCase();
+
+      const nameM = cd.match(/filename\*?=(?:"([^"]+)"|[^;\s]+)/i)
+                 || ct.match(/name\*?=(?:"([^"]+)"|[^;\s]+)/i);
+      const fname = nameM ? nameM[1] || nameM[0].split('=').pop().replace(/"/g,'').trim() : null;
+
+      const isAtt = cd.toLowerCase().startsWith('attachment');
+
+      if (ctl.startsWith('multipart/')) {
+        const bm = ct.match(/boundary=(?:"([^"]+)"|([^\s;]+))/i);
+        if (bm) {
+          const sub = this._multipart(pbody, bm[1] || bm[2], ctl);
+          if (sub.html) html = sub.html;
+          if (sub.text && !text) text = sub.text;
+          attachments.push(...sub.attachments);
+          Object.assign(cids, sub.cids || {});
+        }
+        continue;
+      }
+
+      if (isAtt) {
+        if (fname) attachments.push({ name: fname });
+        if (cid) {
+          const mime = ctl.split(';')[0].trim();
+          cids[cid] = `data:${mime};base64,${pbody.replace(/\s/g,'')}`;
+        }
+        continue;
+      }
+
+      if (ctl.startsWith('text/html')) {
+        html = this._decode(pbody, enc, ctl);
+      } else if (ctl.startsWith('text/plain') && !html) {
+        text = this._decode(pbody, enc, ctl);
+      } else if (cid && ctl.startsWith('image/')) {
+        const mime = ctl.split(';')[0].trim();
+        cids[cid] = `data:${mime};base64,${pbody.replace(/\s/g,'')}`;
+      } else if (fname) {
+        attachments.push({ name: fname });
+      }
+    }
+
+    // Resolve cid: references (inline images)
+    if (html && Object.keys(cids).length) {
+      for (const [cid, url] of Object.entries(cids)) {
+        html = html.replace(new RegExp(`cid:${cid.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}`, 'gi'), url);
+      }
+    }
+    return { html, text, attachments, cids };
+  }
+
+  _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// IndexedDB — persists emails across refreshes (GitHub Pages safe)
+// ═══════════════════════════════════════════════════════════════════
+const DB_NAME = 'mail-inspector-v1', DB_VER = 1, STORE = 'emails';
+
+function openDB() {
+  return new Promise((ok, fail) => {
+    const req = indexedDB.open(DB_NAME, DB_VER);
+    req.onupgradeneeded = e => {
+      const s = e.target.result.createObjectStore(STORE, { keyPath: 'id' });
+      s.createIndex('added', 'added');
+    };
+    req.onsuccess = e => ok(e.target.result);
+    req.onerror   = e => fail(e.target.error);
+  });
+}
+async function dbAll()      { const db = await openDB(); return new Promise((ok,fail) => { const r = db.transaction(STORE,'readonly').objectStore(STORE).index('added').getAll(); r.onsuccess = e => ok(e.target.result); r.onerror = e => fail(e.target.error); }); }
+async function dbPut(rec)   { const db = await openDB(); return new Promise((ok,fail) => { const r = db.transaction(STORE,'readwrite').objectStore(STORE).put(rec); r.onsuccess = ok; r.onerror = e => fail(e.target.error); }); }
+async function dbDel(id)    { const db = await openDB(); return new Promise((ok,fail) => { const r = db.transaction(STORE,'readwrite').objectStore(STORE).delete(id); r.onsuccess = ok; r.onerror = e => fail(e.target.error); }); }
+
+// ═══════════════════════════════════════════════════════════════════
+// App state
+// ═══════════════════════════════════════════════════════════════════
+let emails    = [];
+let activeId  = null;
+let blobUrl   = null;
+
+// ═══════════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════════
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function fmtDate(s) {
+  if (!s) return '';
+  try {
+    const d = new Date(s);
+    if (isNaN(d)) return s;
+    return d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  } catch { return s; }
+}
+
+function displayName(from) {
+  if (!from) return 'Unknown';
+  const m = from.match(/^"?([^"<>@\n]+?)"?\s*</);
+  if (m) return m[1].trim();
+  const em = from.match(/<([^>]+)>/);
+  if (em) return em[1].split('@')[0];
+  return from.includes('@') ? from.split('@')[0] : from;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Rendering
+// ═══════════════════════════════════════════════════════════════════
+function renderList() {
+  const list  = document.getElementById('email-list');
+  const empty = document.getElementById('empty-state');
+  document.getElementById('inbox-count').textContent = emails.length;
+
+  if (!emails.length) {
+    list.innerHTML = '';
+    list.appendChild(empty);
+    return;
+  }
+  empty?.remove();
+
+  list.innerHTML = emails.map(e => {
+    const p   = e.parsed;
+    const act = e.id === activeId ? 'active' : '';
+    const dateShort = fmtDate(p.date).replace(/,.*$/, '').trim(); // "Mon Nov 4"
+    return `
+    <div class="email-item ${act}" data-id="${esc(e.id)}" onclick="select_('${esc(e.id)}')">
+      <div class="ei-from">${esc(displayName(p.from))}</div>
+      <div class="ei-subject">${esc(p.subject)}</div>
+      <div class="ei-meta">
+        <span class="ei-date">${esc(dateShort)}</span>
+        <span class="ei-badge ${e.type==='msg'?'msg':''}">${e.type.toUpperCase()}</span>
+      </div>
+      <button class="ei-del" onclick="del_(event,'${esc(e.id)}')" title="Remove">×</button>
+    </div>`;
+  }).join('');
+}
+
+function renderPreview(email) {
+  const panel = document.getElementById('preview-panel');
+  if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
+
+  if (!email) {
+    panel.innerHTML = '';
+    panel.appendChild(document.getElementById('prev-empty') || (() => {
+      const d = document.createElement('div');
+      d.className = 'prev-empty'; d.id = 'prev-empty';
+      return d;
+    })());
+    return;
+  }
+
+  const p   = email.parsed;
+  const att = (p.attachments||[]).length
+    ? p.attachments.map(a => `<span class="att-chip">📎 ${esc(a.name)}</span>`).join('')
+    : `<span style="color:var(--muted);font-size:11px;font-family:var(--font-mono)">none</span>`;
+
+  const rows = [
+    ['From',    esc(p.from   || '—')],
+    ['To',      esc(p.to     || '—')],
+    ...(p.cc   ? [['CC',      esc(p.cc)]] : []),
+    ['Subject', `<span class="subj">${esc(p.subject)}</span>`],
+    ['Date',    `<span style="font-family:var(--font-mono);font-size:11px">${esc(fmtDate(p.date)||'—')}</span>`],
+    ['Attach',  att],
+  ];
+
+  const hdrHtml = rows.map(([l, v]) =>
+    `<div class="hrow"><div class="hlabel">${l}</div><div class="hval">${v}</div></div>`
+  ).join('');
+
+  // Blob URL so DevTools shows the HTML as a navigable document
+  const blob = new Blob([p.bodyHtml], { type: 'text/html;charset=utf-8' });
+  blobUrl = URL.createObjectURL(blob);
+
+  panel.innerHTML = `
+    <div class="prev-headers">${hdrHtml}</div>
+    <div class="prev-frame">
+      <iframe class="prev-iframe"
+        src="${blobUrl}"
+        sandbox="allow-same-origin allow-popups"
+        title="Email preview — ${esc(p.subject)}">
+      </iframe>
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Actions
+// ═══════════════════════════════════════════════════════════════════
+async function addFiles(files) {
+  for (const file of files) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'eml' && ext !== 'msg') { toast(`Skipped: ${file.name} (not .eml/.msg)`, true); continue; }
+    loading(true);
+    try {
+      const buf    = await file.arrayBuffer();
+      let   parsed;
+      if (ext === 'msg') {
+        parsed = new MSGParser(buf).parse();
+      } else {
+        // Attempt UTF-8, then latin-1 for legacy EML
+        let text;
+        try { text = new TextDecoder('utf-8', {fatal:true}).decode(buf); }
+        catch { text = new TextDecoder('windows-1252').decode(buf); }
+        parsed = new EMLParser().parse(text);
+      }
+      const id  = `${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+      const rec = { id, name: file.name, type: ext, raw: buf, parsed, added: Date.now() };
+      await dbPut(rec);
+      emails.push(rec);
+      renderList();
+      if (!activeId) select_(id);
+      toast(`Added: ${file.name}`);
+    } catch (err) {
+      console.error('Parse error:', err);
+      toast(`Failed to parse ${file.name}: ${err.message}`, true);
+    } finally { loading(false); }
+  }
+}
+
+function select_(id) {
+  activeId = id;
+  renderList();
+  renderPreview(emails.find(e => e.id === id) || null);
+}
+
+async function del_(evt, id) {
+  evt.stopPropagation();
+  await dbDel(id);
+  emails = emails.filter(e => e.id !== id);
+  if (activeId === id) {
+    activeId = emails.length ? emails[0].id : null;
+    renderPreview(activeId ? emails[0] : null);
+  }
+  renderList();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// UI helpers
+// ═══════════════════════════════════════════════════════════════════
+let _lbar = null;
+function loading(on) {
+  if (on && !_lbar) {
+    _lbar = Object.assign(document.createElement('div'), { className: 'loading-bar' });
+    document.body.appendChild(_lbar);
+  } else if (!on && _lbar) { _lbar.remove(); _lbar = null; }
+}
+
+let _tt;
+function toast(msg, err = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast show${err ? ' err' : ''}`;
+  clearTimeout(_tt);
+  _tt = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// File input + drag-and-drop
+// ═══════════════════════════════════════════════════════════════════
+const fi  = document.getElementById('file-input');
+const dz  = document.getElementById('drop-zone');
+
+dz.addEventListener('click', () => fi.click());
+fi.addEventListener('change', () => { addFiles(fi.files); fi.value = ''; });
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); addFiles(e.dataTransfer.files); });
+
+// Full-window drop target
+document.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+document.addEventListener('drop', e => {
+  if ([...e.dataTransfer.types].includes('Files')) {
+    e.preventDefault();
+    if ([...e.dataTransfer.files].some(f => /\.(eml|msg)$/i.test(f.name))) addFiles(e.dataTransfer.files);
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Boot — restore persisted emails from IndexedDB
+// ═══════════════════════════════════════════════════════════════════
+(async () => {
+  try {
+    emails = await dbAll();
+    // Re-parse any records missing a .parsed (schema migration safety)
+    for (const rec of emails) {
+      if (!rec.parsed && rec.raw) {
+        try {
+          if (rec.type === 'msg') {
+            rec.parsed = new MSGParser(rec.raw).parse();
+          } else {
+            let text;
+            try { text = new TextDecoder('utf-8',{fatal:true}).decode(rec.raw); }
+            catch { text = new TextDecoder('windows-1252').decode(rec.raw); }
+            rec.parsed = new EMLParser().parse(text);
+          }
+        } catch(e) {
+          rec.parsed = { subject: rec.name, from:'(parse error)', to:'', cc:'', date:'',
+            bodyHtml:`<pre style="padding:24px;color:#c00">${esc(e.message)}</pre>`, attachments:[] };
+        }
+      }
+    }
+  } catch (e) { console.warn('IndexedDB load failed:', e); emails = []; }
+  renderList();
+  if (emails.length) select_(emails[0].id);
+})();
+</script>
+</body>
+</html>
