@@ -183,6 +183,35 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .prev-frame { flex: 1; overflow: hidden; position: relative; }
 .prev-iframe { width: 100%; height: 100%; border: none; display: block; background: #fff; }
 
+/* ── Mobile preview mode ─────────────────────────── */
+.prev-frame.mobile-mode {
+  display: flex; align-items: flex-start; justify-content: center;
+  overflow-y: auto; overflow-x: hidden;
+  background: #D1D5DB; padding: 20px 0;
+}
+.prev-frame.mobile-mode .prev-iframe {
+  width: 375px; min-width: 375px; height: 100%;
+  box-shadow: 0 0 0 2px var(--border), 0 8px 32px rgba(0,0,0,0.18);
+}
+
+/* ── View toggle ─────────────────────────────────── */
+.view-toggle {
+  display: flex; align-items: center; gap: 0;
+  border: 1.5px solid rgba(255,255,255,0.2); border-radius: 2px; overflow: hidden;
+  margin-left: auto; flex-shrink: 0;
+}
+.vt-btn {
+  padding: 4px 10px; font-size: 9px; font-weight: 800;
+  font-family: var(--font-mono); letter-spacing: 0.07em; text-transform: uppercase;
+  background: transparent; color: rgba(255,255,255,0.45);
+  border: none; cursor: pointer; transition: background 0.1s, color 0.1s;
+  display: flex; align-items: center; gap: 5px;
+}
+.vt-btn:first-child { border-right: 1.5px solid rgba(255,255,255,0.2); }
+.vt-btn.active { background: rgba(255,255,255,0.12); color: #fff; }
+.vt-btn svg { opacity: 0.7; }
+.vt-btn.active svg { opacity: 1; }
+
 .prev-empty {
   flex: 1; display: flex; flex-direction: column;
   align-items: center; justify-content: center;
@@ -223,7 +252,17 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 <div class="topbar">
   <span class="topbar-logo">Mail<span>.</span>Inspector</span>
   <span class="topbar-sub">EML / MSG Viewer</span>
-  <span class="topbar-hint">storage: IndexedDB · works offline</span>
+  <div class="view-toggle" id="view-toggle" title="Toggle mobile preview (375px)">
+    <button class="vt-btn active" id="vt-desktop" onclick="setMobileMode(false)">
+      <svg width="12" height="10" viewBox="0 0 12 10" fill="currentColor"><rect x="0" y="0" width="12" height="8" rx="1"/><rect x="4" y="9" width="4" height="1" rx="0.5"/></svg>
+      Desktop
+    </button>
+    <button class="vt-btn" id="vt-mobile" onclick="setMobileMode(true)">
+      <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor"><rect x="0" y="0" width="8" height="12" rx="1.5"/><rect x="3" y="10" width="2" height="1" rx="0.5" fill="#fff" opacity="0.5"/></svg>
+      375px
+    </button>
+  </div>
+  <span class="topbar-hint" style="margin-left:12px">IndexedDB · offline</span>
 </div>
 
 <div class="app">
@@ -728,7 +767,20 @@ async function dbDel(id)    { const db = await openDB(); return new Promise((ok,
 // ═══════════════════════════════════════════════════════════════════
 let emails    = [];
 let activeId  = null;
-let blobUrl   = null;
+let blobUrl      = null;
+let mobilePreview = localStorage.getItem('mi-mobile') === '1';
+
+function setMobileMode(on) {
+  mobilePreview = on;
+  localStorage.setItem('mi-mobile', on ? '1' : '0');
+  document.getElementById('vt-desktop').classList.toggle('active', !on);
+  document.getElementById('vt-mobile').classList.toggle('active', on);
+  const frame = document.querySelector('.prev-frame');
+  if (frame) frame.classList.toggle('mobile-mode', on);
+}
+
+// Restore toggle state on load
+setMobileMode(mobilePreview);
 
 // ═══════════════════════════════════════════════════════════════════
 // Helpers
@@ -830,6 +882,8 @@ function renderPreview(email) {
         title="Email preview — ${esc(p.subject)}">
       </iframe>
     </div>`;
+
+  if (mobilePreview) panel.querySelector('.prev-frame').classList.add('mobile-mode');
 }
 
 // ═══════════════════════════════════════════════════════════════════
